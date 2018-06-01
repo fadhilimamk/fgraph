@@ -42,7 +42,7 @@ function fio_get_lat() {
 
 
 	if [ "$is_nsec" = true ]; then
-		latency=$(echo $latency*1000 | bc)
+		latency=$(echo $latency*1000 | bc -l)
 	fi
 
 	echo "${latency}"
@@ -54,23 +54,43 @@ function cleanup() {
 	fi
 }
 
+#Prepare output file
+OUTPUT=""
+echo $OUTPUT > output
+
 echo "Start benchmark, it will take a few minutes."
 for NUM_THREAD in 2 4 8 16 32; do
 	printf "\tRunning test with %d threads " $NUM_THREAD
 
-	# for each NUM_THREAD run 3 time and get the average
-        COUNTER=0; SUM=0
-        while [ $COUNTER -lt 3 ]; do
+	OUTPUT="$NUM_THREAD : "
+
+	# for each NUM_THREAD run 4 time and get the average
+        COUNTER=0; LATS=()
+        while [ $COUNTER -lt 4 ]; do
 		result=$(run_fio $NUM_THREAD)
 		echo "$result" >> "log/log_thread_$NUM_THREAD"
         	latency=$(fio_get_lat "$result")
-		SUM=$(echo $SUM+$latency | bc)
+		LATS+=($latency)
+
 		printf "."
+		OUTPUT="$OUTPUT $latency"
         	let COUNTER=COUNTER+1 
         done
 
-	avg_latency=$(echo $SUM/3 | bc)
-	printf "\t %.2f us\n" $avg_latency
+	# Sort to remove outlier, only pick first 3 results
+	LATS=($(echo ${LATS[*]}| tr " " "\n" | sort -n))
+
+	COUNTER=0; SUM=0
+        while [ $COUNTER -lt 3 ]; do
+                SUM=$(echo $SUM+${LATS[$COUNTER]} | bc)
+                let COUNTER=COUNTER+1 
+        done
+
+	avg_latency=$(echo $SUM/3 | bc -l)
+        printf " %.2f us\n" $avg_latency
+
+	OUTPUT="$OUTPUT : $avg_latency"
+	echo $OUTPUT >> output
 
 done
 

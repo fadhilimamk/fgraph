@@ -11,7 +11,7 @@ function prepare_fio_attr() {
 	FIO_ATTR="$FIO_ATTR --group_reporting"
 	FIO_ATTR="$FIO_ATTR --direct=1"
 	FIO_ATTR="$FIO_ATTR --time_based=1"
-	FIO_ATTR="$FIO_ATTR --runtime=30"
+	FIO_ATTR="$FIO_ATTR --runtime=10"
 	FIO_ATTR="$FIO_ATTR --randrepeat=0"
 	FIO_ATTR="$FIO_ATTR --norandommap=1"
 	FIO_ATTR="$FIO_ATTR --thread"
@@ -27,22 +27,25 @@ function run_fio() {
 	echo "$(sudo fio $attrs)"
 }
 
+# return latency in us from fio standard output
 function fio_get_lat() {
 	fio_result=$1
 	is_nsec=true
-
+	
 	result=$(echo "${fio_result}" | grep -e '[[:space:]]lat (nsec)')
-	if [ -z "$result"] ; then
+	if [ -z "$result" ]; then
 		result=$(echo "${fio_result}" | grep -e '[[:space:]]lat (usec)')
 		is_nsec=false
 	fi
-	result=$(echo $result | cut -d',' -f3 | cut -d'=' -f2)
+	
+	latency=$(echo $result | cut -d',' -f3 | cut -d'=' -f2)
 
-	if $is_nsec ; then
-		let result=$result*1000
+
+	if [ "$is_nsec" = true ]; then
+		latency=$(echo $latency*1000 | bc)
 	fi
 
-	echo "${result}"
+	echo "${latency}"
 }
 
 function cleanup() {
@@ -51,9 +54,26 @@ function cleanup() {
 	fi
 }
 
-echo "Running benchmark with 256 threads"
-result=$(run_fio 256)
-echo "${result}"
-echo $(fio_get_lat "$result")
+echo "Start benchmark, it will take a few minutes."
+for NUM_THREAD in 2 4 8 16 32; do
+	printf "\tRunning test with %d threads " $NUM_THREAD
+
+	# for each NUM_THREAD run 3 time and get the average
+        COUNTER=0; SUM=0
+        while [ $COUNTER -lt 3 ]; do
+		result=$(run_fio $NUM_THREAD)
+		echo "$result" >> "log/log_thread_$NUM_THREAD"
+        	latency=$(fio_get_lat "$result")
+		SUM=$(echo $SUM+$latency | bc)
+		printf "."
+        	let COUNTER=COUNTER+1 
+        done
+
+	avg_latency=$(echo $SUM/3 | bc)
+	printf "\t %.2f us\n" $avg_latency
+
+done
 
 cleanup
+
+exit 0
